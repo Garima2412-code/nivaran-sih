@@ -1,34 +1,44 @@
 const Grievance = require("../models/Grievance");
 const generateGrievanceId = require("../services/generateGrievanceId");
 
+const { analyzeGrievance } = require("../services/aiService");
+
 // @route POST /api/grievances  (citizen)
 const createGrievance = async (req, res) => {
   try {
-    const { title, description, category, department, location } = req.body;
+    const { title, description, location } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ message: "Title and description are required" });
     }
+
+    // Ask the AI backend to classify the complaint.
+    // If it fails, aiService already returns safe fallback values.
+    const aiResult = await analyzeGrievance(description);
 
     const grievance = await Grievance.create({
       grievanceId: generateGrievanceId(),
       citizen: req.user._id,
       title,
       description,
-      category: category || "Uncategorized",
-      department: department || null,
+      category: aiResult.category,
+      department: aiResult.department,
+      priority: aiResult.priority,
+      aiSummary: aiResult.summary,
+      duplicateOf: aiResult.duplicateOf,
+      slaRiskScore: aiResult.slaRiskScore,
       location: location || {},
-      statusHistory: [
-        { status: "SUBMITTED", changedBy: req.user._id },
-      ],
+      statusHistory: [{ status: "SUBMITTED", changedBy: req.user._id }],
     });
 
-    res.status(201).json(grievance);
+    res.status(201).json({
+      ...grievance.toObject(),
+      aiProcessed: aiResult.success, // lets the frontend show "AI-classified" vs "manual fallback"
+    });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
 // @route GET /api/grievances/my  (citizen - their own grievances)
 const getMyGrievances = async (req, res) => {
   try {
