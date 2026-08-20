@@ -1,5 +1,4 @@
 const Grievance = require("../models/Grievance");
-const Department = require("../models/Department");
 const generateGrievanceId = require("../services/generateGrievanceId");
 
 const { analyzeGrievance } = require("../services/aiService");
@@ -10,99 +9,50 @@ const createGrievance = async (req, res) => {
     const { title, description, location } = req.body;
 
     if (!title || !description) {
-      return res
-        .status(400)
-        .json({ message: "Title and description are required" });
+      return res.status(400).json({ message: "Title and description are required" });
     }
 
-    // Ask the JanSahay AI backend to classify the complaint.
-    // If AI fails, aiService returns safe fallback values.
+    // Ask the AI backend to classify the complaint.
+    // If it fails, aiService already returns safe fallback values.
     const aiResult = await analyzeGrievance(description);
-
-    // Convert the AI department name into the corresponding
-    // MongoDB Department document/ObjectId.
-    const department = aiResult.department
-      ? await Department.findOne({ name: aiResult.department })
-      : null;
-
-    // Convert JanSahay AI priority values into the values
-    // expected by the MongoDB Grievance schema.
-    const priorityMap = {
-      LOW: "Low",
-      MEDIUM: "Medium",
-      HIGH: "High",
-      CRITICAL: "Critical",
-    };
-
-    const normalizedPriority =
-      priorityMap[String(aiResult.priority).toUpperCase()] || "Medium";
 
     const grievance = await Grievance.create({
       grievanceId: generateGrievanceId(),
       citizen: req.user._id,
       title,
       description,
-
-      // AI classification
       category: aiResult.category,
-
-      // MongoDB expects a Department ObjectId, not the AI's
-      // department-name string.
-      department: department ? department._id : null,
-
-      // MongoDB expects Low/Medium/High/Critical.
-      priority: normalizedPriority,
-
+      department: aiResult.department,
+      priority: aiResult.priority,
       aiSummary: aiResult.summary,
       duplicateOf: aiResult.duplicateOf,
       slaRiskScore: aiResult.slaRiskScore,
-
       location: location || {},
-
-      statusHistory: [
-        {
-          status: "SUBMITTED",
-          changedBy: req.user._id,
-        },
-      ],
+      statusHistory: [{ status: "SUBMITTED", changedBy: req.user._id }],
     });
 
     res.status(201).json({
       ...grievance.toObject(),
-
-      // true = JanSahay AI successfully processed the complaint
-      // false = safe fallback was used
-      aiProcessed: aiResult.success,
+      aiProcessed: aiResult.success, // lets the frontend show "AI-classified" vs "manual fallback"
     });
   } catch (error) {
-    res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-
-// @route GET /api/grievances/my
-// @description Citizen gets their own grievances
+// @route GET /api/grievances/my  (citizen - their own grievances)
 const getMyGrievances = async (req, res) => {
   try {
-    const grievances = await Grievance.find({
-      citizen: req.user._id,
-    })
+    const grievances = await Grievance.find({ citizen: req.user._id })
       .populate("department", "name category")
       .sort({ createdAt: -1 });
 
     res.json(grievances);
   } catch (error) {
-    res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// @route GET /api/grievances/:id
-// @description Citizen who owns grievance, officer, or admin
+// @route GET /api/grievances/:id  (citizen who owns it, or officer/admin)
 const getGrievanceById = async (req, res) => {
   try {
     const grievance = await Grievance.findById(req.params.id)
@@ -111,50 +61,31 @@ const getGrievanceById = async (req, res) => {
       .populate("duplicateOf", "grievanceId title status");
 
     if (!grievance) {
-      return res.status(404).json({
-        message: "Grievance not found",
-      });
+      return res.status(404).json({ message: "Grievance not found" });
     }
 
-    const isOwner =
-      grievance.citizen._id.toString() === req.user._id.toString();
-
+    const isOwner = grievance.citizen._id.toString() === req.user._id.toString();
     const isStaff = ["officer", "admin"].includes(req.user.role);
 
     if (!isOwner && !isStaff) {
-      return res.status(403).json({
-        message: "Access denied",
-      });
+      return res.status(403).json({ message: "Access denied" });
     }
 
     res.json(grievance);
   } catch (error) {
-    res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// @route GET /api/grievances
-// @description Officer/admin gets all grievances, optionally filtered
+// @route GET /api/grievances  (officer/admin - all grievances, optionally filtered)
 const getAllGrievances = async (req, res) => {
   try {
     const { status, department, priority } = req.query;
 
     const filter = {};
-
-    if (status) {
-      filter.status = status;
-    }
-
-    if (department) {
-      filter.department = department;
-    }
-
-    if (priority) {
-      filter.priority = priority;
-    }
+    if (status) filter.status = status;
+    if (department) filter.department = department;
+    if (priority) filter.priority = priority;
 
     const grievances = await Grievance.find(filter)
       .populate("department", "name category")
@@ -163,60 +94,33 @@ const getAllGrievances = async (req, res) => {
 
     res.json(grievances);
   } catch (error) {
-    res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// @route PATCH /api/grievances/:id/status
-// @description Officer/admin updates grievance status
+// @route PATCH /api/grievances/:id/status  (officer/admin)
 const updateGrievanceStatus = async (req, res) => {
   try {
     const { status, resolutionNote } = req.body;
 
-    const validStatuses = [
-      "SUBMITTED",
-      "ASSIGNED",
-      "IN_PROGRESS",
-      "RESOLVED",
-      "CLOSED",
-    ];
-
+    const validStatuses = ["SUBMITTED", "ASSIGNED", "IN_PROGRESS", "RESOLVED", "CLOSED"];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        message: "Invalid status value",
-      });
+      return res.status(400).json({ message: "Invalid status value" });
     }
 
     const grievance = await Grievance.findById(req.params.id);
-
     if (!grievance) {
-      return res.status(404).json({
-        message: "Grievance not found",
-      });
+      return res.status(404).json({ message: "Grievance not found" });
     }
 
     grievance.status = status;
-
-    if (resolutionNote) {
-      grievance.resolutionNote = resolutionNote;
-    }
-
-    grievance.statusHistory.push({
-      status,
-      changedBy: req.user._id,
-    });
+    if (resolutionNote) grievance.resolutionNote = resolutionNote;
+    grievance.statusHistory.push({ status, changedBy: req.user._id });
 
     await grievance.save();
-
     res.json(grievance);
   } catch (error) {
-    res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
