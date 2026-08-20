@@ -1,42 +1,90 @@
 const axios = require("axios");
 
-const AI_BASE_URL = process.env.AI_BACKEND_URL || "http://localhost:8000";
+const AI_BASE_URL =
+  process.env.AI_BACKEND_URL || "http://localhost:8000";
 
-// Calls the AI backend to classify a grievance.
-// Returns a normalized result no matter what — callers never need to
-// handle "AI is down" themselves.
-const analyzeGrievance = async (description) => {
+// Calls the JanSahay FastAPI AI service.
+// The AI service is responsible for Gemini-based grievance analysis.
+// This Node service normalizes the response so the rest of the
+// grievance backend does not need to know the AI implementation details.
+const analyzeGrievance = async (description, location = {}) => {
   try {
+    const payload = {
+      complaint: description,
+    };
+
+    // Forward location coordinates when available.
+    // The AI service can use these for location context.
+    if (
+      location &&
+      typeof location.lat === "number" &&
+      typeof location.lng === "number"
+    ) {
+      payload.latitude = location.lat;
+      payload.longitude = location.lng;
+    }
+
     const response = await axios.post(
-      `${AI_BASE_URL}/ai/analyze-grievance`,
-      { description },
-      { timeout: 5000 } // don't let a slow AI call hang the request
+      `${AI_BASE_URL}/api/ai/analyze`,
+      payload,
+      {
+        timeout: 15000,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
     );
 
     const data = response.data || {};
 
     return {
       success: true,
+
+      // AI classification
       category: data.category || "Uncategorized",
+      subCategory: data.sub_category || null,
       department: data.department || null,
-      priority: data.priority || "Medium",
+      issue: data.issue || "",
+      priority: data.priority || "MEDIUM",
+
+      // AI-generated explanation
       summary: data.summary || "",
-      duplicateOf: Array.isArray(data.duplicateOf) ? data.duplicateOf : [],
-      slaRiskScore: typeof data.slaRiskScore === "number" ? data.slaRiskScore : 0,
+      reason: data.reason || "",
+
+      // Extracted information
+      location: data.location || null,
+      duration: data.duration || null,
+
+      // AI confidence/language
+      confidence:
+        typeof data.confidence === "number" ? data.confidence : 0,
+      language: data.language || null,
+      languageName: data.language_name || null,
+
+      // Additional context returned by JanSahay
+      locationContext: data.location_context || null,
     };
   } catch (error) {
-    // AI backend is down, slow, or returned something invalid.
-    // Fall back to safe defaults so grievance creation NEVER fails because of this.
-    console.error("AI backend call failed, using fallback:", error.message);
+    console.error(
+      "JanSahay AI backend call failed, using fallback:",
+      error.response?.data || error.message
+    );
 
     return {
       success: false,
       category: "Uncategorized",
+      subCategory: null,
       department: null,
-      priority: "Medium",
+      issue: "",
+      priority: "MEDIUM",
       summary: "",
-      duplicateOf: [],
-      slaRiskScore: 0,
+      reason: "",
+      location: null,
+      duration: null,
+      confidence: 0,
+      language: null,
+      languageName: null,
+      locationContext: null,
     };
   }
 };
