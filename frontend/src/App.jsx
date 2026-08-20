@@ -1,71 +1,120 @@
-import React, { useState } from 'react';
-import Header from './components/Header';
-import Hero from './components/Hero';
-import AboutPlatform from './components/AboutPlatform';
-import Features from './components/Features';
-import CitizenJourney from './components/CitizenJourney';
-import Departments from './components/Departments';
-import AuthModal from './components/AuthModal';
-import Footer from './components/Footer';
-import { translations } from './utils/translations';
+import React, { useEffect, useState } from "react";
+
+import Header from "./components/Header";
+import Hero from "./components/Hero";
+import AboutPlatform from "./components/AboutPlatform";
+import Features from "./components/Features";
+import CitizenJourney from "./components/CitizenJourney";
+import Departments from "./components/Departments";
+import AuthModal from "./components/AuthModal";
+import Footer from "./components/Footer";
+import CitizenDashboard from "./components/CitizenDashboard";
+
+import { translations } from "./utils/translations";
+import {
+  getAuthenticatedUser,
+  logout,
+} from "./services/api";
 
 export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authRole, setAuthRole] = useState('citizen');
+  const [authRole, setAuthRole] = useState("citizen");
   const [authIsRegister, setAuthIsRegister] = useState(false);
-  const [currentLang, setCurrentLang] = useState('en');
-  const [fontSize, setFontSize] = useState('base'); // 'sm', 'base', 'lg'
+
+  const [currentLang, setCurrentLang] = useState("en");
+  const [fontSize, setFontSize] = useState("base");
   const [highContrast, setHighContrast] = useState(false);
+
   const [user, setUser] = useState(null);
 
-  // Active translation dictionary
-  const t = translations[currentLang] || translations.en;
+  const t =
+    translations[currentLang] || translations.en;
 
-  const handleOpenAuth = (role = 'citizen', isRegister = false) => {
+  /*
+   * Restore the authenticated user when the application
+   * starts or the browser is refreshed.
+   */
+  useEffect(() => {
+    const storedUser = getAuthenticatedUser();
+
+    if (storedUser) {
+      setUser(storedUser);
+    }
+  }, []);
+
+  const handleOpenAuth = (
+    role = "citizen",
+    isRegister = false
+  ) => {
     setAuthRole(role);
     setAuthIsRegister(isRegister);
     setAuthModalOpen(true);
   };
 
   const handleLoginSuccess = (userData) => {
-    setUser(userData);
+    setUser({
+      _id: userData._id,
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      department: userData.department || null,
+    });
+
+    setAuthModalOpen(false);
   };
 
   const handleSignOut = () => {
+    logout();
     setUser(null);
   };
 
-  // Dynamic root font scale style
   const fontStyle = {
-    fontSize: fontSize === 'sm' ? '13px' : fontSize === 'lg' ? '18px' : '15px'
+    fontSize:
+      fontSize === "sm"
+        ? "13px"
+        : fontSize === "lg"
+        ? "18px"
+        : "15px",
   };
 
-  return (
-    <div 
-      style={fontStyle}
-      className={`min-full flex flex-col min-h-screen transition-all ${highContrast ? 'bg-black text-amber-300' : 'bg-slate-50 text-slate-900'}`}
-    >
-      
-      {/* Top Banner when user is logged in */}
-      {user && (
-        <div className="bg-[#0F2E5A] text-white px-4 py-2 text-xs flex justify-between items-center shadow-md border-b border-amber-400">
-          <div className="flex items-center space-x-2 font-semibold">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-ping"></span>
-            <span>Welcome, <strong>{user.name}</strong> ({user.role === 'officer' ? `Officer - ${user.department}` : 'Registered Citizen'})</span>
-          </div>
-          <button 
-            onClick={handleSignOut}
-            className="bg-slate-900 hover:bg-slate-950 px-3 py-1 rounded text-amber-300 font-bold border border-slate-700 transition"
-          >
-            Sign Out
-          </button>
-        </div>
-      )}
+  /*
+   * Authenticated citizen:
+   * show the actual working dashboard instead
+   * of the public landing page.
+   */
+  if (user) {
+    return (
+      <div
+        style={fontStyle}
+        className={`min-h-screen ${
+          highContrast
+            ? "bg-black text-amber-300"
+            : "bg-slate-50 text-slate-900"
+        }`}
+      >
+        <CitizenDashboard
+          user={user}
+          onSignOut={handleSignOut}
+        />
+      </div>
+    );
+  }
 
-      {/* Main Header Component */}
-      <Header 
-        onOpenAuth={handleOpenAuth} 
-        currentLang={currentLang} 
+  /*
+   * Logged-out public landing page.
+   */
+  return (
+    <div
+      style={fontStyle}
+      className={`min-h-screen flex flex-col transition-all ${
+        highContrast
+          ? "bg-black text-amber-300"
+          : "bg-slate-50 text-slate-900"
+      }`}
+    >
+      <Header
+        onOpenAuth={handleOpenAuth}
+        currentLang={currentLang}
         setCurrentLang={setCurrentLang}
         fontSize={fontSize}
         setFontSize={setFontSize}
@@ -74,53 +123,34 @@ export default function App() {
         t={t}
       />
 
-      {/* Landing Page Content */}
       <main className="flex-1">
-        
-        {/* 1. Hero Section */}
-        <Hero 
-          onOpenAuth={handleOpenAuth} 
-          t={t}
-        />
-
-        {/* 2. About Platform Section */}
-        <AboutPlatform 
+        <Hero
           onOpenAuth={handleOpenAuth}
           t={t}
         />
 
-        {/* 3. Core Differentiators & Comparison Table */}
-        <Features 
+        <AboutPlatform
+          onOpenAuth={handleOpenAuth}
           t={t}
         />
 
-        {/* 4. Citizen Journey Workflow */}
-        <CitizenJourney 
-          t={t}
-        />
+        <Features t={t} />
 
-        {/* 5. Supported Departments Knowledge Directory */}
-        <Departments 
-          t={t}
-        />
+        <CitizenJourney t={t} />
 
+        <Departments t={t} />
       </main>
 
-      {/* Footer */}
-      <Footer 
-        t={t}
-      />
+      <Footer t={t} />
 
-      {/* Auth Modal for Login & Registration */}
-      <AuthModal 
-        isOpen={authModalOpen} 
-        onClose={() => setAuthModalOpen(false)} 
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
         initialRole={authRole}
         initialIsRegister={authIsRegister}
         onLoginSuccess={handleLoginSuccess}
         t={t}
       />
-
     </div>
   );
 }
