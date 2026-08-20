@@ -1,63 +1,47 @@
 const User = require("../models/User");
 const generateToken = require("../services/generateToken");
+const asyncHandler = require("../middleware/asyncHandler");
+const ApiError = require("../middleware/apiError");
 
-// @route POST /api/auth/register
-const registerUser = async (req, res) => {
-    try {
-        const { name, email, password } = req.body;
+const registerUser = asyncHandler(async (req, res) => {
+  const { name, email, password } = req.body;
 
-        if (!name || !email || !password) {
-            return res.status(400).json({ message: "All fields are required" });
-        }
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    throw new ApiError(400, "Email already registered");
+  }
 
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ message: "Email already registered" });
-        }
+  const user = await User.create({ name, email, password });
 
-        const user = await User.create({ name, email, password });
+  res.status(201).json({
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    token: generateToken(user._id, user.role),
+  });
+});
 
-        res.status(201).json({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            token: generateToken(user._id, user.role),
-        });
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
-    }
-};
+const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-// @route POST /api/auth/login
-const loginUser = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  const user = await User.findOne({ email }).select("+password");
+  if (!user) {
+    throw new ApiError(401, "Invalid email or password");
+  }
 
-        if (!email || !password) {
-            return res.status(400).json({ message: "Email and password are required" });
-        }
+  const isMatch = await user.comparePassword(password);
+  if (!isMatch) {
+    throw new ApiError(401, "Invalid email or password");
+  }
 
-        const user = await User.findOne({ email }).select("+password");
-        if (!user) {
-            return res.status(401).json({ message: "Invalid email or password" });
-        }
-
-        const isMatch = await user.comparePassword(password);
-        if (!isMatch) {
-            return res.status(401).json({ message: "Invalid email or password" });
-        }
-
-        res.json({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            token: generateToken(user._id, user.role),
-        });
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
-    }
-};
+  res.json({
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    token: generateToken(user._id, user.role),
+  });
+});
 
 module.exports = { registerUser, loginUser };
